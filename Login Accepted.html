@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timekeeping Selfie</title>
+
+  <style>
+    /* Reset (From Samples) */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: "Inter", sans-serif;
+    }
+
+    body {
+      background: #f5f7fa;
+      display: flex;
+      height: 100vh;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    /* Container (Modified from Samples) */
+    .capture-container {
+      background: #ffffff;
+      width: 100%;
+      max-width: 420px;
+      padding: 32px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      animation: fadeIn 0.4s ease;
+      text-align: center; /* Center content like title/video */
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Title (From Samples) */
+    .capture-title {
+      font-size: 24px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 28px;
+      color: #1a1a1a;
+    }
+
+    /* Camera Feed */
+    #videoFeed {
+      width: 100%;
+      /* Maintain a 4:3 aspect ratio (typical for webcams) */
+      aspect-ratio: 4/3; 
+      /* Ensures the video is centered and fits in the card */
+      display: block; 
+      border-radius: 10px;
+      background-color: #eee; /* Placeholder color before camera loads */
+      margin-bottom: 20px;
+      transform: scaleX(-1); /* Flips the video horizontally for a "selfie" mirror effect */
+    }
+
+    /* Canvas is hidden, used for processing the image */
+    #photoCanvas {
+      display: none;
+    }
+
+    /* Button (From Samples) */
+    .btn-capture {
+      width: 100%;
+      padding: 14px;
+      font-size: 17px;
+      font-weight: 600;
+      background: #4a7bff;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: 0.25s background, 0.25s transform;
+      margin-top: 10px;
+    }
+    
+    .btn-capture:hover {
+      background: #395fcc;
+      transform: translateY(-2px);
+    }
+    
+    .btn-capture:active {
+      transform: translateY(0);
+    }
+
+    /* Mobile optimization (From Samples) */
+    @media (max-width: 480px) {
+      .capture-container {
+        padding: 26px;
+      }
+      .capture-title {
+        font-size: 22px;
+      }
+      .btn-capture {
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="capture-container">
+    <div class="capture-title">Take Your Selfie</div>
+    
+    <video id="videoFeed" autoplay playsinline></video>
+    
+    <canvas id="photoCanvas"></canvas>
+
+    <button id="captureButton" class="btn-capture">Capture Selfie</button>
+  </div>
+
+  <script>
+    const video = document.getElementById('videoFeed');
+    const canvas = document.getElementById('photoCanvas');
+    const button = document.getElementById('captureButton');
+    const WEBCAM_WIDTH = 640;
+    const WEBCAM_HEIGHT = 480;
+    
+    // --- STEP 1: Request Camera Access ---
+    function startCamera() {
+      // Constraints: Request video access, prefer the user-facing camera (if on mobile)
+      const constraints = {
+        video: {
+          width: WEBCAM_WIDTH,
+          height: WEBCAM_HEIGHT,
+          facingMode: 'user' // 'user' for front camera, 'environment' for rear
+        }
+      };
+      
+      // Request access to the media stream
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then((stream) => {
+          // Success: Attach the stream to the video element
+          video.srcObject = stream;
+        })
+        .catch((error) => {
+          console.error('Camera access error: ', error);
+          alert('Could not access camera. Please check permissions and try again.');
+          // You might want to display a fallback message in the UI here
+        });
+    }
+
+    // --- STEP 2: Capture Photo and Send to Webhook ---
+    button.addEventListener('click', () => {
+      // Stop if camera is not running
+      if (!video.srcObject) return;
+
+      // Set canvas size to match the video feed for capture
+      canvas.width = WEBCAM_WIDTH;
+      canvas.height = WEBCAM_HEIGHT;
+
+      // Get 2D rendering context
+      const context = canvas.getContext('2d');
+      
+      // Mirror the image on the canvas to match the video preview (optional)
+      context.translate(WEBCAM_WIDTH, 0);
+      context.scale(-1, 1); 
+
+      // Draw the current video frame onto the canvas
+      context.drawImage(video, 0, 0, WEBCAM_WIDTH, WEBCAM_HEIGHT);
+
+      // Convert the canvas content to a Base64 PNG image string
+      const imageDataURL = canvas.toDataURL('image/png');
+      
+      // --- STEP 3: Send Data to n8n Webhook ---
+      const webhookURL = 'https://primary-production-a810.up.railway.app/webhook/855d9c47-c505-4128-9b89-62d1f1f88d8a'; 
+      
+      const payload = {
+        timestamp: new Date().toISOString(),
+        // Send the Base64 image string. This is the "selfie" data.
+        selfieImage: imageDataURL, 
+        // You can add other data needed for timekeeping, like user ID
+        // userId: '...', 
+      };
+
+      // Disable button and show loading state
+      button.textContent = 'Submitting...';
+      button.disabled = true;
+
+      fetch(webhookURL, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+      })
+      .then(response => {
+          if (response.ok) {
+              // Handle successful submission
+              alert('Selfie captured and submitted successfully!');
+              // Redirect to a success page or clear the form
+              window.location.href = 'SUCCESS_PAGE_URL'; 
+          } else {
+              // Handle server errors
+              throw new Error('Submission failed with status: ' + response.status);
+          }
+      })
+      .catch(error => {
+          // Handle network errors
+          console.error('Submission Error:', error);
+          alert('Error submitting time: ' + error.message);
+      })
+      .finally(() => {
+          // Re-enable button
+          button.textContent = 'Capture Selfie';
+          button.disabled = false;
+      });
+
+      // Stop all tracks to turn off the camera light/process
+      video.srcObject.getTracks().forEach(track => track.stop());
+    });
+    
+    // Initialize the camera when the page loads
+    window.onload = startCamera;
+  </script>
+
+</body>
+</html>
